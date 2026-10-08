@@ -240,6 +240,7 @@ function renderHero(){var b=state.brand||{};
   return '<header class="hero wrap">'+(b.logo?'<img class="logo" src="'+esc(b.logo)+'" alt="El Patio · Tostadas &amp; Beers" width="150" height="150">':'')+
   '<p class="tagline">'+esc(b.tagline)+'</p>'+(b.lead?'<p class="lead">'+esc(b.lead)+'</p>':'')+statusHtml()+heroHours()+
   (editing?'<button class="ed-btn" data-act="edit-info">Editar portada, horario y datos</button>':'')+
+  syncHtml()+
   (editing&&draftOffer?'<div class="restore"><p>Tienes cambios sin publicar de la última vez.</p><button class="btn" data-act="discard-draft">Descartar</button><button class="btn primary" data-act="restore-draft">Recuperar</button></div>':'')+
   '</header>';}
 function renderPromo(){var p=state.promo||{};if(!p.active&&!editing)return "";
@@ -476,12 +477,45 @@ function buildDocument(data){
   var css=$("app-css").textContent,js=$("app-js").textContent,S="script",ST="style";
   var json=JSON.stringify(data).replace(/</g,"\\u003c").replace(new RegExp(String.fromCharCode(8232),"g"),"\\u2028").replace(new RegExp(String.fromCharCode(8233),"g"),"\\u2029");
   return PREFIX+"<title>"+TITLE+"</title>\n"+FONTS+"\n<"+ST+' id="app-css">'+css+"</"+ST+'>\n<div id="app"></div><div id="layer"></div>\n<'+S+' type="application/json" id="menu-data">'+json+"</"+S+">\n<"+S+' id="app-js">'+js+"</"+S+">\n\n</body></html>";}
+/* ---------- Sync to the customer site (GitHub -> Cloudflare) ---------- */
+var SYNC_KEY="elpatio-sync",SYNC_TASK="trig_01XuixnQEBGFUA2ttMj4zAAH",syncFail=null,syncBusy=false;
+function sstore(){try{return window.sessionStorage;}catch(e){return null;}}
+function markSync(v){var s=sstore();if(s)try{s.setItem(SYNC_KEY,v);}catch(e){}}
+function takeSync(){var s=sstore();if(!s)return null;try{var v=s.getItem(SYNC_KEY);s.removeItem(SYNC_KEY);return v;}catch(e){return null;}}
+var SYNC_MSG={
+  no_mcp:"Esta vista no puede avisar a la página de clientes.",
+  not_in_manifest:"No diste permiso para subir a la página de clientes. Toca Subir ahora y elige Permitir.",
+  approval_required:"Falta tu aprobación. Toca Subir ahora y elige Permitir.",
+  server_not_connected:"La conexión Claude Code Remote no está disponible en tu cuenta.",
+  needs_reauth:"La conexión Claude Code Remote necesita reconectarse en Ajustes de Claude.",
+  blocked_by_policy:"Tu cuenta no permite usar esa conexión desde el menú.",
+  tool_error:"La tarea programada no arrancó.",
+  other:"No se pudo avisar a la página de clientes."};
+/* Resolves "ok" or a failure code; never rejects. */
+function notifySite(){
+  if(!(window.claude&&typeof window.claude.use==="function"))return Promise.resolve("no_mcp");
+  return window.claude.use("mcp").then(function(mcp){
+    if(!mcp)return "no_mcp";
+    return mcp.callTool("Claude Code Remote","fire_trigger",{trigger_id:SYNC_TASK,text:"Antes del paso 1 espera 25 segundos (sleep 25) para que la publicación termine de guardarse."})
+      .then(function(){return "ok";},function(e){var c=e&&e.code;return SYNC_MSG[c]?c:"other";});
+  },function(){return "no_mcp";});}
+function syncHtml(){if(!canEdit||!syncFail)return "";
+  return '<div class="restore"><p>Se publicó aquí, pero no llegó a la página de clientes. '+esc(SYNC_MSG[syncFail]||SYNC_MSG.other)+'</p>'+
+    '<button class="btn primary" data-act="sync-now"'+(syncBusy?' disabled':'')+'>'+(syncBusy?'Subiendo…':'Subir ahora')+'</button></div>';}
+function syncNow(){if(syncBusy)return;syncBusy=true;render();
+  notifySite().then(function(r){syncBusy=false;
+    if(r==="ok"){syncFail=null;render();toast("Listo. La página de clientes se actualiza en 3 a 5 minutos.",6000);}
+    else{syncFail=r;render();}});}
+function afterReload(){var st=takeSync();if(!st)return;
+  if(st==="ok")toast("Publicado. La página de clientes se actualiza sola en 3 a 5 minutos.",6000);
+  else{syncFail=st;render();}}
+
 function publish(){if(busy||!dirty)return;if(!artifactNS){toast("Publicar no está disponible en esta vista.");return;}
   var next=clone(state);next.rev=(saved.rev||0)+1;next.publishId=uid();next.updatedAt=new Date().toISOString();
   var html=buildDocument(next);
   if(html.length>15500000){toast("El menú pesa demasiado para publicarse. Quita algunas fotos.",4500);return;}
   saveDraft(next.publishId);busy=true;render();
-  artifactNS.publish(html).then(function(){toast("Publicado. Tus clientes ya lo ven.",4000);dirty=0;}).catch(function(e){busy=false;var c=e&&e.code;
+  notifySite().then(function(r){markSync(r);return artifactNS.publish(html);}).then(function(){toast("Publicado.",4000);dirty=0;}).catch(function(e){busy=false;takeSync();var c=e&&e.code;
     if(c==="conflict"){toast("Había una versión más nueva. Recargando; tus cambios quedan para recuperar.",5000);return;}
     if(c==="not_writer"||c==="not_granted"||c==="consent_required"||c==="not_declared"||c==="capability_disabled"||c==="capability_removed"){canEdit=false;editing=false;render();toast("Esta vista es solo de lectura. Abre el menú desde tu cuenta de Claude para editar.",5000);return;}
     if(c==="too_large"){render();toast("El menú pesa demasiado. Quita algunas fotos y vuelve a publicar.",5000);return;}
@@ -505,6 +539,7 @@ document.addEventListener("click",function(e){
     case "publish":publish();break;
     case "restore-draft":state=draftOffer.state;dirty=draftOffer.dirty||1;draftOffer=null;saveDraft();render();toast("Cambios recuperados. Falta publicar.");break;
     case "discard-draft":draftOffer=null;clearDraft();render();break;
+    case "sync-now":syncNow();break;
     case "edit-item":var f2=findItem(b.getAttribute("data-item"));if(f2)itemSheet(f2.item,f2.sec.id,false);break;
     case "add-item":itemSheet({id:uid(),name:"",price:""},b.getAttribute("data-sec"),true);break;
     case "save-item":saveItem();break;
@@ -543,7 +578,7 @@ setInterval(function(){var s=$("status");if(s)s.outerHTML=statusHtml();document.
 render();
 if(window.claude&&typeof window.claude.use==="function"){
   Promise.all([window.claude.use("artifact"),window.claude.use("user")]).then(function(r){
-    var a=r[0],u=r[1];if(!a||!u)return null;return u.canEdit().then(function(ok){if(!ok)return;artifactNS=a;canEdit=true;checkDraft();render();});
+    var a=r[0],u=r[1];if(!a||!u)return null;return u.canEdit().then(function(ok){if(!ok)return;artifactNS=a;canEdit=true;checkDraft();render();afterReload();});
   }).catch(function(){});
 }
 })();
