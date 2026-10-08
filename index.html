@@ -16,6 +16,16 @@ body{background-color:var(--bg);background-image:radial-gradient(120% 55% at 50%
 button{font:inherit;color:inherit;cursor:pointer}
 :focus-visible{outline:2px solid var(--cane);outline-offset:2px}
 .wrap{max-width:560px;margin:0 auto;padding-inline:18px}
+#app{position:relative;z-index:1}
+.leaves{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.leaf{position:absolute;height:auto;color:#2C4630}
+.leaf .vein{stroke:var(--bg)}
+.lf1{width:230px;top:-70px;left:-95px;transform:rotate(128deg);opacity:.55}
+.lf2{width:250px;top:34%;right:-125px;transform:rotate(-62deg);opacity:.42}
+.lf3{width:200px;bottom:-80px;left:-85px;transform:rotate(38deg);opacity:.5}
+.lf4{width:150px;bottom:16%;right:-70px;transform:rotate(-125deg);opacity:.3;color:#3A5A3D}
+.lf5{width:120px;top:62%;left:-62px;transform:rotate(70deg);opacity:.28;color:#3A5A3D}
+@media (min-width:700px){.lf1{width:300px}.lf2{width:320px}.lf3{width:280px}}
 .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
 /* Hero */
@@ -575,6 +585,12 @@ document.addEventListener("keydown",function(e){if(e.key==="Escape"&&$("layer").
 window.addEventListener("beforeunload",function(e){if(editing&&dirty&&!busy){e.preventDefault();e.returnValue="";}});
 setInterval(function(){var s=$("status");if(s)s.outerHTML=statusHtml();document.querySelectorAll(".avail").forEach(function(el){var g=null;groups().forEach(function(x){if(x.from===el.getAttribute("data-from"))g=x;});if(g)el.outerHTML=availHtml(g);});},60000);
 
+(function leaves(){if(document.querySelector(".leaves"))return;
+  var v="";for(var y=34;y<=176;y+=20){v+='<path class="vein" d="M50 '+y+' Q72 '+(y-5)+' 96 '+(y-22)+'"/><path class="vein" d="M50 '+y+' Q28 '+(y-5)+' 4 '+(y-22)+'"/>';}
+  var leaf='<svg viewBox="0 0 100 210" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M50 0C86 26 104 78 96 128C89 170 68 198 50 210C32 198 11 170 4 128C-4 78 14 26 50 0Z"/><g fill="none" stroke-width="3" stroke-linecap="round">'+v+'<path class="vein" stroke-width="2" d="M50 10V204"/></g></svg>';
+  var box=document.createElement("div");box.className="leaves";box.setAttribute("aria-hidden","true");
+  box.innerHTML=[1,2,3,4,5].map(function(i){return '<div class="leaf lf'+i+'">'+leaf+'</div>';}).join("");
+  document.body.insertBefore(box,document.body.firstChild);})();
 render();
 if(window.claude&&typeof window.claude.use==="function"){
   Promise.all([window.claude.use("artifact"),window.claude.use("user")]).then(function(r){
